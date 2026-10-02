@@ -1,0 +1,50 @@
+name: Signed-zero validation
+
+on:
+  push:
+    branches: [codex/validate-signed-zero]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-zero-validation
+  cancel-in-progress: false
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SCRIPTC_TEST_WORKERS: "2"
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: ./.github/actions/llvm-linux
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/zig
+      - uses: ./.github/actions/native-packages
+        with:
+          target: linux-x64-gnu
+      - run: pnpm build
+      - name: Plain numerical and library regression tests
+        run: pnpm test packages/compiler/src/library/int-infer.test.ts tests/harness/library-int*.test.ts
+      - name: Sanitized numerical and library regression tests
+        env:
+          SCRIPTC_SAN: "1"
+        run: pnpm test packages/compiler/src/library/int-infer.test.ts tests/harness/library-int*.test.ts
+      - name: Preserve native signed-zero evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-zero-native-evidence
+          path: node_modules/.cache/scriptc-tests/library-int-signed-zero-native
+          retention-days: 7
